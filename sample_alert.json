@@ -1,0 +1,24 @@
+
+{
+  "version": "4",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "ErrorBudgetBurn",
+        "severity": "critical",
+        "slo": "system-availability-istio",
+        "tier": "system",
+        "namespace": "monitoring",
+        "long": "13m",
+        "short": "1m"
+      },
+      "annotations": {
+        "summary": "ErrorBudgetBurn fired on system-availability-istio (critical, fast-burn)",
+        "description": "Multi-window burn rate exceeded the critical threshold for system-availability-istio. Short window 1m, long window 13m. Projected budget exhaustion in ~3h25m. The UI tier is observing elevated 5xx on requests to the catalog call path."
+      },
+      "startsAt": "2026-06-17T03:05:00Z"
+    }
+  ]
+}

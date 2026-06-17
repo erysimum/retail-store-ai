@@ -1,0 +1,5 @@
+slack_webhook.txt
+venv/
+__pycache__/
+*.pyc
+*.env
