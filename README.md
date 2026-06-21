@@ -1,58 +1,46 @@
 # retail-store-ai
 
-An advisory AI SRE agent for the retail-store platform
-(EKS + Istio + Prometheus + Pyrra SLOs). When an alert fires, the agent investigates
-the live cluster and posts a diagnosis to Slack. It is read-only and advisory — it
-suggests commands; a human runs them.
+This is an AI agent that helps with on-call for my retail-store platform (EKS, Istio, Prometheus, Pyrra SLOs). When an alert fires, it goes and looks at the live cluster, works out what's probably wrong, and posts a writeup to Slack. It never changes anything itself. It tells you what it found and what it'd run, and you make the call.
+
+> 📸 You can see it working in [chapter 5 of the platform walkthrough](https://github.com/erysimum/retail-store-gitops/tree/main/docs/walkthrough/05-ai-agent): the subagents firing off in parallel, then the Slack card with the root cause, the evidence, and the remediation commands to fix it.
 
 ## What it does
 
-1. Receives an Alertmanager-shaped alert via POST /alert.
-2. Runs two investigation subagents in parallel, each a separate claude -p
-   process scoped to one tool:
-   - a metrics subagent (Prometheus MCP only)
-   - a kubernetes subagent (Kubernetes MCP only)
-   - plus a lightweight local git log check
-3. A compiler step (no tools) synthesizes the findings into structured JSON,
-   validated against a Pydantic schema.
-4. Posts a Slack Block Kit card: root cause, impact, per-source evidence, and
-   copy-paste remediation commands.
+When an alert comes in (a normal Alertmanager payload to `POST /alert`), the agent kicks off two investigators run at the same time in parallel. Each one is its own `claude -p` process that's only allowed to touch one thing:
 
-## Design decisions
+- a metrics agent that can only query Prometheus
+- a kubernetes agent that can only query Kubernetes
+- plus a quick git-log check on the side
 
-- Read-only / human-in-the-loop. No subagent can write to the cluster or Git.
-- Least privilege: each claude -p call is scoped with --allowedTools to exactly
-  the one MCP tool its job needs.
-- Real parallelism: subagents run as separate OS processes via
-  asyncio.create_subprocess_exec, awaited together with asyncio.gather.
-- Structured output: the compiler returns JSON validated by a Pydantic model,
-  with a parser fallback for malformed output.
-- Guardrails: per-subagent timeouts, a dedup window, and a guarded Slack POST.
+Once they're done, a third step with no tools at all pulls their findings together into clean JSON (I validate it with Pydantic), and turns that into a Slack card: what broke, who's affected, the evidence from each source, and commands you can copy and paste.
 
-## What I observed testing it on EKS
+## Why it's built this way
 
-- With no relevant data (local kind cluster), the metrics subagent correctly
-  reported the data was absent instead of inventing numbers.
-- During a live breach, the metrics analysis was accurate, but the root cause
-  sometimes attributed the failure to a coincidental recent pod restart rather
-  than the injected fault — the agent has no way to know a human injected it.
-- Fired at a system that had already recovered, the agent correctly identified
-  that the alert was stale rather than reporting an active incident.
+- **Read-only, human in the loop.** No part of it can write to the cluster or to Git. It looks and suggests, that's it.
+- **Least privilege.** Each `claude -p` call is scoped with `--allowedTools` to exactly the one tool its job needs, nothing more.
+- **Actually parallel.** The investigators run as separate OS processes (`asyncio.create_subprocess_exec`, awaited together), not async pretending to be parallel.
+- **Structured output.** The compiler returns JSON checked against a Pydantic model, with a fallback parser if the output comes back malformed.
+- **Guardrails.** Timeouts on each investigator, a dedup window so repeat alerts don't pile up, and a guarded Slack post.
 
-The agent reasons reasonably from what it can observe, but cannot know what is
-not in the cluster — which is why it stays advisory, with a human in the loop.
+## What happened when I tested it on EKS
+
+## What happened when I tested it on EKS
+
+- On a cluster with no relevant data, the metrics agent correctly said the data wasn't there instead of making numbers up.
+- When I pointed it at a system that had already recovered (after I deleted the fault injection), it correctly spotted that the alert was stale instead of calling it a live incident. A relief for the on-call engineer.
+
+Short version: it reasons well from what it can see. But when I tested it against the cluster after injecting a 3% fault on catalog, it blamed a catalog pod restart, which was wrong. Catalog never actually sees the 500s (Istio aborts the requests before they reach the pod), and the agent has no way of knowing a human injected the fault. It only reasons from the evidence in front of it, so it filled the gap with the most plausible thing it could see. 
 
 ## Files
 
-- main.py — the FastAPI agent (orchestrator, subagents, compiler, Slack renderer)
-- sample_alert.json — an Alertmanager-shaped payload for testing
-- requirements.txt — Python dependencies
-- v1_alert_responder.py, v1_alert_server.py — earlier single-shot versions
+- `main.py` — the FastAPI agent (orchestrator, subagents, compiler, Slack renderer)
+- `sample_alert.json` — an Alertmanager-shaped payload for testing
+- `requirements.txt` — Python dependencies
+- `v1_alert_responder.py`, `v1_alert_server.py` — earlier single-shot versions
 
-## Running locally
+## Running it locally
 
-Requires a cluster reachable by kubectl, Prometheus at localhost:9090, and the
-Claude Code CLI with kubernetes and prometheus MCP servers registered.
+You'll need a cluster reachable by `kubectl`, Prometheus on `localhost:9090`, and the Claude Code CLI with the kubernetes and prometheus MCP servers registered.
 
     python3 -m venv venv && source venv/bin/activate
     pip install -r requirements.txt
@@ -61,6 +49,4 @@ Claude Code CLI with kubernetes and prometheus MCP servers registered.
     # in another terminal:
     curl -X POST http://localhost:8000/alert -H "Content-Type: application/json" -d @sample_alert.json
 
-If no webhook is configured, the agent prints the card to stdout instead of posting.
-
-
+If there's no webhook set up, it just prints the card to your terminal instead of posting to Slack.
