@@ -22,7 +22,6 @@ Once they're done, a third step with no tools at all pulls their findings togeth
 - **Structured output.** The compiler returns JSON checked against a Pydantic model, with a fallback parser if the output comes back malformed.
 - **Guardrails.** Timeouts on each investigator, a dedup window so repeat alerts don't pile up, and a guarded Slack post.
 
-## What happened when I tested it on EKS
 
 ## What happened when I tested it on EKS
 
